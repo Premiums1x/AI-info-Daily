@@ -606,14 +606,14 @@ function App() {
       }
 
       if (event.key === 'Escape' && isSearchOpen && !activeArticle) {
-        setIsSearchOpen(false);
-        searchButtonRef.current?.focus();
+        event.preventDefault();
+        closeSearch();
       }
     };
 
     document.addEventListener('keydown', handleGlobalKeyDown);
     return () => document.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [activeArticle, isSearchOpen]);
+  }, [activeArticle, isSearchOpen, isScrolled]);
 
   useEffect(() => {
     if (!toastMessage) return undefined;

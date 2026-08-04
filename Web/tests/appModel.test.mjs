@@ -152,3 +152,12 @@ test('archive mode keeps return-to-featured navigation visible away from the arc
     target: null,
   });
 });
+
+test('escape closes a scrolled search panel through the scroll-safe close path', () => {
+  const escapeHandler = appSource.match(/const handleGlobalKeyDown = \(event\) => \{[\s\S]*?\n    \};/)[0];
+
+  assert.match(escapeHandler, /event\.key === 'Escape'/);
+  assert.match(escapeHandler, /closeSearch\(\)/);
+  assert.match(appSource, /\[activeArticle, isSearchOpen, isScrolled\]/);
+  assert.doesNotMatch(escapeHandler, /searchButtonRef\.current\?\.focus\(\)/);
+});
