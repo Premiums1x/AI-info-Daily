@@ -3,3 +3,4 @@ node_modules/
 Web/dist/
 __pycache__/
 *.py[cod]
+.env

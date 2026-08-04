@@ -113,6 +113,15 @@ def test_featured_returns_recent_articles_only():
     assert [item["id"] for item in body["items"]] == [1]
 
 
+def test_daily_draw_returns_one_recent_article():
+    with make_client() as (client, _):
+        response = client.get("/api/v1/daily-draw")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["article"]["id"] == 1
+    assert body["drawn_at"]
+
 def test_health_reports_degraded_when_database_session_fails():
     with make_client() as (client, app):
         def broken_session_factory():

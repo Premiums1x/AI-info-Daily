@@ -7,7 +7,8 @@ from app.core.database import SessionFactory
 from app.ingestion.classifier import build_search_text, classify_article, extract_tags
 from app.ingestion.fetcher import FeedFetcher
 from app.ingestion.parser import parse_feed
-from app.ingestion.sources import SOURCE_DEFINITIONS, SourceDefinition
+from app.ingestion.registry import load_enabled_source_definitions
+from app.ingestion.sources import SourceDefinition
 from app.models.article import Article
 from app.models.source import Source
 
@@ -53,7 +54,12 @@ async def run_ingestion(
     settings: Settings | None = None,
 ) -> IngestionResult:
     settings = settings or Settings()
-    definitions = [source for source in (sources or SOURCE_DEFINITIONS) if source.enabled]
+    if sources is None:
+        with session_factory() as session:
+            definitions = load_enabled_source_definitions(session)
+            session.commit()
+    else:
+        definitions = [source for source in sources if source.enabled]
     fetcher = fetcher or FeedFetcher(settings.rss_timeout_seconds)
     result = IngestionResult()
 
@@ -134,4 +140,3 @@ async def run_ingestion(
                 session.commit()
 
     return result
-

@@ -5,16 +5,22 @@ export default function SourceAtlas({
   isRefreshing,
   statusMessage,
   onSelect,
+  onManage,
 }) {
   const defaultStatus = isRefreshing
     ? '正在同步信源…'
     : '悬停节点查看来源，点击后筛选牌组';
 
   return (
-    <section className={`source-atlas${isRefreshing ? ' is-refreshing' : ''}`} aria-label="今日信源星图">
+    <section className={`source-atlas${isRefreshing ? ' is-refreshing' : ''}`} aria-label="已接入信源星图">
       <div className="source-atlas-bar">
-        <span>今天接入的信源</span>
-        <span>{sources.length} 个来源 · {articleCount} 张牌</span>
+        <span>已接入信源</span>
+        <div className="source-atlas-meta">
+          <span>{sources.length} 个来源 · {articleCount} 张牌</span>
+          <button className="source-manage-trigger" type="button" onClick={onManage}>
+            管理信源 <span aria-hidden="true">↗</span>
+          </button>
+        </div>
       </div>
 
       <div className="source-orbit" role="group" aria-label="可筛选的信源节点">
@@ -27,24 +33,25 @@ export default function SourceAtlas({
 
         {sources.map((source) => {
           const isActive = activeSource === source.id;
+          const disabledLabel = source.enabled ? '' : '，已停用';
           return (
             <button
               key={source.id}
-              className={`source-node tone-${source.accent}${isActive ? ' is-active' : ''}`}
+              className={`source-node tone-${source.accent}${isActive ? ' is-active' : ''}${source.enabled ? '' : ' is-disabled'}`}
               style={{
                 '--source-x': `${source.x}%`,
                 '--source-y': `${source.y}%`,
                 '--source-delay': `${source.index * 64}ms`,
               }}
               type="button"
-              aria-label={`${source.name}，${source.articleCount} 张牌`}
+              aria-label={`${source.name}，${source.articleCount} 张牌${disabledLabel}`}
               aria-pressed={isActive}
               onClick={() => onSelect(isActive ? '全部' : source.id)}
             >
               <i aria-hidden="true" />
               <span className="source-node-label">
                 <strong>{source.name}</strong>
-                <small>{source.articleCount} 张牌</small>
+                <small>{source.articleCount} 张牌{source.enabled ? '' : ' · 已停用'}</small>
               </span>
             </button>
           );

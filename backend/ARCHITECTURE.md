@@ -32,7 +32,7 @@ FastAPI JSON API
 - 保存标题、来源、时间、RSS 摘要和原文链接。
 - 不保存或展示商业媒体的完整正文。
 - 暂不实现登录、用户收藏、推荐算法和 AI 摘要。
-- 暂不提供新闻源管理后台，新闻源通过代码配置。
+- 提供轻量级信源目录管理 API，内置源和用户自定义 RSS / Atom 源统一由数据库驱动。
 
 ## 2. 目录结构
 
@@ -49,14 +49,17 @@ backend/
 │   ├── schemas/
 │   │   ├── article.py          # 文章 API 响应模型
 │   │   ├── category.py         # 分类和精选响应模型
+│   │   ├── daily_draw.py        # Hero 抽牌响应模型
 │   │   └── health.py           # 健康检查响应模型
 │   ├── api/v1/
 │   │   ├── articles.py         # 文章列表和详情
 │   │   ├── categories.py       # 分类统计
-│   │   ├── featured.py         # 最近资讯精选
+│   │   ├── daily_draw.py       # Hero 当日抽牌
+│   │   ├── featured.py         # 下方精选牌编排
 │   │   └── health.py           # 服务健康状态
 │   ├── ingestion/
-│   │   ├── sources.py          # 固定 RSS 源配置
+│   │   ├── sources.py          # 内置 RSS 源配置
+│   │   ├── registry.py         # 数据库信源目录与默认源初始化
 │   │   ├── fetcher.py          # HTTP 请求
 │   │   ├── parser.py           # RSS/Atom 解析和文本清洗
 │   │   ├── classifier.py       # 分类和标签规则
@@ -101,7 +104,7 @@ backend/
 | `google_news_ai` | Google News · AI | Google News AI / 人工智能 / 大模型搜索 RSS |
 | `huggingface_blog` | Hugging Face Blog | `https://huggingface.co/blog/feed.xml` |
 
-新增来源只需要添加一个 `SourceDefinition`，不需要修改 API。
+内置来源仍由 `SourceDefinition` 提供默认值；应用首次访问信源目录或执行抓取时会将缺失的内置来源写入数据库。用户新增的 RSS / Atom 来源通过 `/api/v1/sources` 写入数据库，抓取管线只读取数据库中启用的来源。
 
 ### 4.2 单个来源的处理步骤
 
@@ -233,8 +236,12 @@ http://localhost:8000/api/v1
 | `GET` | `/articles` | 文章列表、搜索、分类、标签和分页 |
 | `GET` | `/articles/{id}` | 文章详情 |
 | `GET` | `/categories` | 分类统计 |
-| `GET` | `/featured` | 最近时间范围内的精选文章 |
+| `GET` | `/daily-draw` | Hero 当天抽一张牌 |
+| `GET` | `/featured` | 下方精选牌（按信源和主题分散） |
 | `GET` | `/health` | 数据库、调度器和来源健康状态 |
+| `GET` | `/sources` | 全部信源及最近文章数、抓取状态 |
+| `POST` | `/sources` | 新增 RSS / Atom 信源 |
+| `PATCH` | `/sources/{code}` | 修改名称、地址或启停状态 |
 
 ### 6.1 通用约定
 
@@ -358,13 +365,35 @@ GET /api/v1/categories?since_hours=24
 
 该接口始终返回全部五个分类，即使某个分类当前没有文章。
 
-### 7.4 获取精选文章
+### 7.4 获取今日抽牌
 
 ```http
-GET /api/v1/featured?since_hours=24&limit=5
+GET /api/v1/daily-draw?since_hours=24
 ```
 
-当前精选规则是：在时间范围内按 `published_at` 倒序返回最新文章，不使用 AI 生成脉络或摘要。
+该接口只为 Hero 区域返回当天的一张牌。后端按当天日期生成稳定的抽牌索引，因此同一天重复加载时会得到同一张牌，第二天会重新抽取；没有最近资讯时 `article` 返回 `null`。
+
+响应示例：
+
+```json
+{
+  "drawn_at": "2026-08-04",
+  "article": null
+}
+```
+### 7.5 获取精选牌
+
+```http
+GET /api/v1/featured?since_hours=24&limit=7
+```
+
+该接口为首页下方七张精选牌提供确定性的牌面顺序：
+
+- 先从时间范围内按 `published_at` 倒序的文章中，每个信源选一篇。
+- 如果牌数还未达到 `limit`，再优先补充尚未出现的主题。
+- 最后按发布时间倒序补足剩余名额。
+
+因此它不是 AI 推荐或摘要接口，而是一个轻量、可解释的日报编排接口。`limit` 默认 7，允许范围为 1–20；`since_hours` 默认 24。
 
 响应示例：
 
@@ -376,7 +405,7 @@ GET /api/v1/featured?since_hours=24&limit=5
 }
 ```
 
-### 7.5 健康检查
+### 7.6 健康检查
 
 ```http
 GET /api/v1/health
@@ -438,12 +467,11 @@ Web 和小程序都只依赖公共 API，不应直接访问 SQLite 或 RSS 源�
 
 前端建议按以下方式使用：
 
-1. 页面加载时请求 `/articles`。
-2. 分类按钮通过 `category` 参数筛选。
-3. 搜索框通过 `q` 参数搜索。
-4. “加载更多”通过增加 `offset` 请求下一页。
-5. 点击标题后进入详情页，并使用 `original_url` 跳转原文。
-6. 收藏等用户状态暂时放在前端本地，不写入公共资讯 API。
+1. 首页加载时请求 `/daily-draw?since_hours=24` 作为 Hero 当天抽牌，请求 `/featured?since_hours=24&limit=7` 作为下方七张精选牌，同时请求 `/articles` 作为完整牌库数据。
+2. Hero 只展示 `/daily-draw` 返回的一张牌；下方精选牌直接使用 `/featured` 的顺序。
+3. 主题、搜索和信源筛选由前端基于完整文章数据处理，完整牌库通过 `limit` 和 `offset` 分页。
+4. 点击标题后进入详情层，并使用 `original_url` 跳转原文。
+5. 收藏等用户状态暂时放在前端本地，不写入公共资讯 API。
 
 ## 10. 后续扩展方向
 
@@ -459,9 +487,9 @@ Web 和小程序都只依赖公共 API，不应直接访问 SQLite 或 RSS 源�
 
 - 用户登录和微信身份绑定。
 - 用户收藏、阅读历史和个性化推荐。
-- 管理后台和新闻源动态管理。
+- 更复杂的权限、审核和多用户信源管理。
 - PostgreSQL、Redis 或消息队列。
 - AI 摘要、翻译和内容质量评估。
 
-这些功能不应通过修改当前文章响应的基础字段来临时实现，应保持 `/api/v1` 公共资讯接口的兼容性。
+这些功能不应通过修改当前文章响应的基础字段来临时实现，应保持 `/api/v1` 公共资讯接口的兼容性。信源管理已经作为独立资源实现，前端和后续小程序都可以复用。
 

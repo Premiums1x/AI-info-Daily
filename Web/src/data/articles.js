@@ -98,5 +98,3 @@ export const articles = [
     url: 'https://www.anthropic.com/news',
   },
 ];
-
-export const topics = ['全部', 'Agent', '开源模型', 'AI 产品', '算力'];

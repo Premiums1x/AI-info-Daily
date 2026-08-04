@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchLatestArticles, normalizeArticle, refreshLatestSignals } from './api/newsApi.js';
+import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, refreshLatestSignals, updateSource } from './api/newsApi.js';
+import SignalArchive from './components/SignalArchive.jsx';
 import SourceAtlas from './components/SourceAtlas.jsx';
-import { articles, topics } from './data/articles.js';
-import { fanPose, filterArticles, getStickyNavState } from './appModel.js';
+import SourceManager from './components/SourceManager.jsx';
+import { articles } from './data/articles.js';
+import { fanPose, filterArticles, formatCurrentDate, getArchiveNavigationState, getStickyNavState, resolveCardClick, resolveDailyDrawClick, resolveDailyDrawDismiss, selectHandArticles } from './appModel.js';
+import { mergeTopicItems, summarizeTopics } from './topicModel.js';
 import { filterArticlesBySource, summarizeSources } from './sourceModel.js';
+
+const HAND_SIZE = 7;
 
 function SearchIcon() {
   return (
@@ -28,6 +33,15 @@ function ArrowUpIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
+    </svg>
+  );
+}
+
+function FeaturedIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="7" width="12" height="12" rx="2" />
+      <path d="M8 4h9a2 2 0 0 1 2 2v9" />
     </svg>
   );
 }
@@ -63,6 +77,7 @@ function TopDock({
   onQueryChange,
   onRead,
   onProfile,
+  currentDate,
 }) {
   return (
     <header ref={dockRef} className={`top-dock page-width glass-surface${isScrolled ? ' is-scrolled' : ''}`} aria-label="AI Daily 顶部导航">
@@ -75,7 +90,7 @@ function TopDock({
       </a>
 
       <div className="dock-middle">
-        <span className="dock-date">8月 3日 · 周一</span>
+        <span className="dock-date">{formatCurrentDate(currentDate)}</span>
         <span className="dock-divider" aria-hidden="true" />
         <span className="dock-status"><i /> {sourceCount} 个信源正在工作</span>
       </div>
@@ -124,18 +139,31 @@ function TopDock({
   );
 }
 
-function StickyDock({ isVisible, isSearchOpen, sourceCount, onToggleSearch, onScrollTop }) {
-  const tabIndex = isVisible ? 0 : -1;
+function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, currentDate, onToggleSearch, onScrollTop, onReturnToFeatured }) {
+  const navigation = getArchiveNavigationState(isArchiveOpen, isScrolled);
+  const tabIndex = navigation.isVisible ? 0 : -1;
+  const [dateLabel, weekdayLabel] = formatCurrentDate(currentDate).split(' · ');
 
   return (
-    <div className={`sticky-dock${isVisible ? ' is-visible' : ''}`} aria-hidden={!isVisible}>
+    <div className={`sticky-dock${navigation.isVisible ? ' is-visible' : ''}`} aria-hidden={!navigation.isVisible}>
       <div className="sticky-dock-left glass-surface">
         <strong>AI Daily</strong>
-        <span className="sticky-dock-date">8月 3日</span>
-        <span className="sticky-dock-week">周一</span>
+        <span className="sticky-dock-date">{dateLabel}</span>
+        <span className="sticky-dock-week">{weekdayLabel}</span>
         <span className="sticky-dock-source"><i />{sourceCount} 个信源正在工作</span>
       </div>
       <div className="sticky-dock-actions">
+        {navigation.showReturnToFeatured && (
+          <button
+            className="sticky-dock-action sticky-dock-action--featured glass-surface"
+            type="button"
+            aria-label="返回精选界面"
+            tabIndex={tabIndex}
+            onClick={onReturnToFeatured}
+          >
+            <FeaturedIcon />
+          </button>
+        )}
         <button
           className="sticky-dock-action glass-surface"
           type="button"
@@ -160,21 +188,25 @@ function StickyDock({ isVisible, isSearchOpen, sourceCount, onToggleSearch, onSc
   );
 }
 
-function Hero({ isDeckFlipped, articleCount, onFlip, onRead, onDeal }) {
+function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, featuredCount, onDrawClick, onRead, onDeal }) {
+  const dailyDrawTitle = dailyDrawArticle?.title || "今天暂时没有新信号";
+  const dailyDrawRank = dailyDrawArticle?.rank || "A";
+  const dailyDrawType = dailyDrawArticle?.type || "DAILY";
+  const dailyDrawNote = dailyDrawArticle ? "再次点击卡片，打开完整简报" : "今日暂无可抽取的信号";
   return (
     <section className="intro page-width" aria-labelledby="intro-title">
       <div className="intro-copy">
         <p className="intro-meta">
           <span className="meta-mark" aria-hidden="true" />
-          <span>8月 3日 · 周一</span>
+          <span>{formatCurrentDate(currentDate)}</span>
           <span className="meta-divider" aria-hidden="true" />
-          <span>{articleCount} 张精选信号</span>
+          <span>{featuredCount} 张精选 · {articleCount} 条信号</span>
         </p>
         <h1 id="intro-title">今天的 AI，<em>已经发到手上。</em></h1>
         <p className="intro-lede">不追逐热闹，只把过去 24 小时里值得继续追踪的变化，整理成一手可以慢慢翻的牌。</p>
         <div className="intro-actions">
           <button className="primary-action" type="button" onClick={onRead}>先看最重要的一张 <span aria-hidden="true">↘</span></button>
-          <button className="secondary-action" type="button" onClick={onDeal}>重新发牌 <span aria-hidden="true">↻</span></button>
+          <button className="secondary-action" type="button" onClick={onDeal}>重新排精选 <span aria-hidden="true">↻</span></button>
         </div>
         <p className="intro-footnote"><strong>8 分钟</strong>读完今日重点 <span aria-hidden="true">·</span> 每张牌都能打开原文</p>
       </div>
@@ -187,44 +219,44 @@ function Hero({ isDeckFlipped, articleCount, onFlip, onRead, onDeal }) {
           className={`deck-card deck-card--front deck-flip${isDeckFlipped ? ' is-flipped' : ''}`}
           type="button"
           aria-expanded={isDeckFlipped}
-          aria-label={isDeckFlipped ? '合上今日信号牌：先做计划，再执行长任务' : '翻开今日信号牌'}
-          onClick={onFlip}
+          aria-label={isDeckFlipped ? "再次点击打开简报：" + dailyDrawTitle : "翻开今日抽牌"}
+          onClick={onDrawClick}
         >
           <span className="deck-face deck-face--front" aria-hidden="true">
             <span className="deck-card-top"><span>03</span><span>MON</span></span>
             <span className="deck-card-symbol">✦</span>
-            <strong>今日<br />手牌</strong>
+            <strong>今日<br />抽牌</strong>
             <span className="deck-card-bottom"><span>AI DAILY</span><span>2026</span></span>
           </span>
           <span className="deck-face deck-face--back">
-            <span className="deck-reveal-top"><span>A</span><span>AGENT</span></span>
+            <span className="deck-reveal-top"><span>{dailyDrawRank}</span><span>{dailyDrawType}</span></span>
             <span className="deck-reveal-symbol">✦</span>
-            <strong>先做计划，再执行长任务</strong>
-            <span className="deck-reveal-note">点击卡片，阅读完整简报</span>
+            <strong>{dailyDrawTitle}</strong>
+            <span className="deck-reveal-note">{dailyDrawNote}</span>
           </span>
         </button>
-        <span className="deal-stage-caption">悬停或点击，翻一张看看</span>
+        <span className="deal-stage-caption">点击，翻一张看看</span>
       </div>
     </section>
   );
 }
 
-function TopicStrip({ currentTopic, topicCounts, resultCount, onSelect }) {
+function TopicStrip({ topicItems, currentTopic, resultCount, onSelect }) {
   return (
     <section className="topic-strip page-width" aria-label="按主题浏览">
       <span className="topic-title">按主题看牌</span>
       <div className="topic-dock" role="tablist" aria-label="资讯主题">
-        {topics.map((topic) => (
+        {topicItems.map(({ name, count }) => (
           <button
-            key={topic}
-            className={`topic-button${currentTopic === topic ? ' is-active' : ''}`}
+            key={name}
+            className={`topic-button${currentTopic === name ? ' is-active' : ''}`}
             type="button"
             role="tab"
-            aria-selected={currentTopic === topic}
-            onClick={() => onSelect(topic)}
+            aria-selected={currentTopic === name}
+            onClick={() => onSelect(name)}
           >
-            <span>{topic}</span>
-            <small>{String(topicCounts[topic]).padStart(2, '0')}</small>
+            <span>{name}</span>
+            <small>{String(count).padStart(2, '0')}</small>
           </button>
         ))}
       </div>
@@ -233,8 +265,8 @@ function TopicStrip({ currentTopic, topicCounts, resultCount, onSelect }) {
   );
 }
 
-function CardHand({ visibleArticles, onOpen, firstCardRef }) {
-  const [poppingId, setPoppingId] = useState(null);
+function CardHand({ visibleArticles, selectedId, onSelect, onClearSelection, onOpen, firstCardRef }) {
+  const [hoveredId, setHoveredId] = useState(null);
   const [isEntering, setIsEntering] = useState(true);
   const signature = visibleArticles.map((article) => article.id).join('|');
 
@@ -243,23 +275,55 @@ function CardHand({ visibleArticles, onOpen, firstCardRef }) {
     return () => window.cancelAnimationFrame(frame);
   }, [signature]);
 
-  const syncPopState = (element, id) => {
+  useEffect(() => {
+    if (hoveredId && !visibleArticles.some((article) => article.id === hoveredId)) {
+      setHoveredId(null);
+    }
+  }, [hoveredId, visibleArticles]);
+
+  const syncHoverState = (element, id) => {
     if (element.matches(':hover') || element.matches(':focus-within')) {
-      setPoppingId(id);
-    } else {
-      setPoppingId((current) => (current === id ? null : current));
+      setHoveredId(id);
+      return;
+    }
+
+    setHoveredId((current) => (current === id ? null : current));
+  };
+
+  const handleCardClick = (article, event) => {
+    const next = resolveCardClick(selectedId, article.id);
+    onSelect(next.selectedId);
+
+    if (next.shouldOpen) {
+      onOpen(article, event);
+    }
+  };
+
+  const handleHandPointerDown = (event) => {
+    if (event.target === event.currentTarget) {
+      onClearSelection();
     }
   };
 
   return (
-    <div className={`card-hand${poppingId ? ' has-pop' : ''}`} data-count={visibleArticles.length} aria-live="polite" aria-atomic="false">
+    <div
+      id="card-hand"
+      className={'card-hand' + (hoveredId ? ' has-hover' : '') + (selectedId ? ' has-selection' : '')}
+      data-count={visibleArticles.length}
+      aria-live="polite"
+      aria-atomic="false"
+      onPointerDown={handleHandPointerDown}
+    >
       {visibleArticles.map((article, index) => {
         const pose = fanPose(visibleArticles.length, index);
+        const isHovered = hoveredId === article.id;
+        const isSelected = selectedId === article.id;
         const cardClass = [
           'news-card',
-          `tone-${article.accent}`,
+          'tone-' + article.accent,
           isEntering ? 'is-entering' : '',
-          poppingId === article.id ? 'is-popping' : '',
+          isHovered ? 'is-hovered' : '',
+          isSelected ? 'is-selected' : '',
         ].filter(Boolean).join(' ');
 
         return (
@@ -268,35 +332,36 @@ function CardHand({ visibleArticles, onOpen, firstCardRef }) {
             className={cardClass}
             data-id={article.id}
             style={{
-              '--angle': `${pose.angle}deg`,
-              '--lift': `${pose.lift}px`,
-              '--deal-delay': `${index * 42}ms`,
+              '--angle': pose.angle + 'deg',
+              '--lift': pose.lift + 'px',
+              '--deal-delay': index * 42 + 'ms',
               '--stack': index + 1,
             }}
-            onPointerEnter={() => setPoppingId(article.id)}
+            onPointerEnter={() => setHoveredId(article.id)}
             onPointerLeave={(event) => {
               const element = event.currentTarget;
-              window.requestAnimationFrame(() => syncPopState(element, article.id));
+              window.requestAnimationFrame(() => syncHoverState(element, article.id));
             }}
-            onFocus={() => setPoppingId(article.id)}
+            onFocus={() => setHoveredId(article.id)}
             onBlur={(event) => {
               const element = event.currentTarget;
-              window.requestAnimationFrame(() => syncPopState(element, article.id));
+              window.requestAnimationFrame(() => syncHoverState(element, article.id));
             }}
           >
             <button
               ref={index === 0 ? firstCardRef : undefined}
               className="card-surface"
               type="button"
-              aria-label={`打开《${article.title}》`}
-              onClick={(event) => onOpen(article, event)}
+              aria-pressed={isSelected}
+              aria-label={isSelected ? '再次点击《' + article.title + '》打开详情' : '选择《' + article.title + '》'}
+              onClick={(event) => handleCardClick(article, event)}
             >
               <span className="card-content">
                 <span className="card-topline"><span className="card-source"><i aria-hidden="true" />{article.source}</span><span className="card-time">{article.time}</span></span>
                 <span className="card-rankline"><span className="card-rank">{article.rank}</span><span className="card-type">{article.type}</span></span>
                 <span className="card-title">{article.title}</span>
                 <span className="card-summary">{article.summary}</span>
-                <span className="card-bottom"><span className="card-tags">{article.tags.map((tag) => <span className="card-tag" key={tag}>{tag}</span>)}</span><span className="card-open-label">打开简报 <span aria-hidden="true">↗</span></span></span>
+                <span className="card-bottom"><span className="card-tags">{article.tags.map((tag) => <span className="card-tag" key={tag}>{tag}</span>)}</span><span className="card-open-label">{isSelected ? '再次点击打开简报' : '点击选择'} <span aria-hidden="true">↗</span></span></span>
               </span>
             </button>
           </article>
@@ -331,16 +396,26 @@ function FocusSheet({ article, sheetRef, closeRef, onClose }) {
 }
 
 function App() {
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [currentTopic, setCurrentTopic] = useState('全部');
   const [currentQuery, setCurrentQuery] = useState('');
   const [dealRound, setDealRound] = useState(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDeckFlipped, setIsDeckFlipped] = useState(false);
   const [activeArticle, setActiveArticle] = useState(null);
+  const [selectedArticleId, setSelectedArticleId] = useState(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [loadedArticles, setLoadedArticles] = useState(articles);
+  const [featuredArticles, setFeaturedArticles] = useState(() => selectHandArticles(articles, HAND_SIZE));
+  const [dailyDrawArticle, setDailyDrawArticle] = useState(() => articles[0] || null);
+  const [topicItems, setTopicItems] = useState(() => summarizeTopics(articles));
   const [activeSource, setActiveSource] = useState('全部');
+  const [sourceItems, setSourceItems] = useState([]);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [isSourceManagerOpen, setIsSourceManagerOpen] = useState(false);
+  const [sourceMutationStatus, setSourceMutationStatus] = useState('idle');
+  const [sourceMutationMessage, setSourceMutationMessage] = useState('');
   const [refreshStatus, setRefreshStatus] = useState('idle');
   const [refreshMessage, setRefreshMessage] = useState('');
 
@@ -352,9 +427,16 @@ function App() {
   const sheetCloseRef = useRef(null);
   const lastTriggerRef = useRef(null);
 
+  useEffect(() => {
+    const syncCurrentDate = () => setCurrentDate(new Date());
+    const timer = window.setInterval(syncCurrentDate, 60_000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const sourceSummaries = useMemo(
-    () => summarizeSources(loadedArticles),
-    [loadedArticles],
+    () => summarizeSources(loadedArticles, sourceItems),
+    [loadedArticles, sourceItems],
   );
 
   const filteredArticles = useMemo(
@@ -367,15 +449,70 @@ function App() {
     [filteredArticles, activeSource],
   );
 
-  const topicCounts = useMemo(
-    () => Object.fromEntries(topics.map((topic) => [topic, loadedArticles.filter((article) => topic === '全部' || article.topic === topic).length])),
-    [loadedArticles],
-  );
+
+  const handArticles = useMemo(() => {
+    const useBackendHand = currentTopic === '全部'
+      && !currentQuery.trim()
+      && activeSource === '全部'
+      && featuredArticles.length > 0;
+    const candidates = useBackendHand
+      ? filterArticles(featuredArticles, { shift: dealRound })
+      : visibleArticles;
+    return selectHandArticles(candidates, HAND_SIZE);
+  }, [activeSource, currentQuery, currentTopic, dealRound, featuredArticles, visibleArticles]);
+  const archiveAvailable = visibleArticles.length > HAND_SIZE;
 
   const selectedSource = sourceSummaries.find((source) => source.id === activeSource);
   const atlasStatus = refreshStatus === 'loading'
     ? '正在同步信源…'
     : refreshMessage || (selectedSource ? `${selectedSource.name} · ${selectedSource.articleCount} 张牌` : '悬停节点查看来源，点击后筛选牌组');
+
+  useEffect(() => {
+    if (!archiveAvailable) setIsArchiveOpen(false);
+  }, [archiveAvailable]);
+
+  useEffect(() => {
+    if (currentQuery.trim()) setIsArchiveOpen(true);
+  }, [currentQuery]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateFromBackend = async () => {
+      try {
+        const [remoteArticles, remoteFeaturedArticles, remoteDailyDraw, remoteTopicItems, remoteSources] = await Promise.all([
+          fetchLatestArticles(),
+          fetchFeaturedArticles().catch(() => []),
+          fetchDailyDraw().catch(() => null),
+          fetchTopics(),
+          fetchSources(),
+        ]);
+        if (cancelled) return;
+
+        const nextArticles = remoteArticles.map((article, index) => normalizeArticle(article, index));
+        const nextFeaturedArticles = remoteFeaturedArticles.map((article, index) => normalizeArticle(article, index));
+        const nextDailyDraw = remoteDailyDraw ? normalizeArticle(remoteDailyDraw, 0) : null;
+        setLoadedArticles(nextArticles);
+        setFeaturedArticles(nextFeaturedArticles.length ? nextFeaturedArticles : selectHandArticles(nextArticles, HAND_SIZE));
+        setDailyDrawArticle(nextDailyDraw || nextArticles[0] || nextFeaturedArticles[0] || null);
+        setTopicItems(mergeTopicItems(remoteTopicItems, nextArticles));
+        setSourceItems(remoteSources);
+      } catch (_error) {
+        // Keep the prototype fallback when the API is not running yet.
+      }
+    };
+
+    hydrateFromBackend();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedArticleId && !visibleArticles.some((article) => article.id === selectedArticleId)) {
+      setSelectedArticleId(null);
+    }
+  }, [selectedArticleId, visibleArticles]);
 
   useEffect(() => {
     const updateStickyState = () => {
@@ -414,7 +551,7 @@ function App() {
     const handleSheetKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        setActiveArticle(null);
+        closeBrief();
         return;
       }
 
@@ -440,6 +577,25 @@ function App() {
       window.requestAnimationFrame(() => lastTriggerRef.current?.focus());
     };
   }, [activeArticle]);
+
+  useEffect(() => {
+    if (!selectedArticleId && !activeArticle && !isDeckFlipped) return undefined;
+
+    const handleDocumentPointerDown = (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.news-card, .sheet-card, .deck-flip')) return;
+
+      setSelectedArticleId(null);
+      if (activeArticle) {
+        closeBrief();
+      } else if (isDeckFlipped) {
+        setIsDeckFlipped(resolveDailyDrawDismiss().nextFlipped);
+      }
+    };
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    return () => document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  }, [selectedArticleId, activeArticle, isDeckFlipped]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (event) => {
@@ -487,11 +643,38 @@ function App() {
 
   const showToast = (message) => setToastMessage(message);
 
+  const closeBrief = () => {
+    setActiveArticle(null);
+    setSelectedArticleId(null);
+    setIsDeckFlipped(resolveDailyDrawDismiss().nextFlipped);
+  };
+
   const openBrief = (article, event) => {
-    lastTriggerRef.current = event.currentTarget;
+    const trigger = event?.currentTarget;
+    lastTriggerRef.current = trigger;
+
+    if (trigger?.closest('.card-hand')) {
+      setSelectedArticleId(article.id);
+    } else {
+      setSelectedArticleId(null);
+    }
+
     setActiveArticle(article);
   };
 
+  const handleDailyDrawClick = (event) => {
+    const result = resolveDailyDrawClick(isDeckFlipped, Boolean(dailyDrawArticle));
+    setIsDeckFlipped(result.nextFlipped);
+
+    if (result.shouldOpen && dailyDrawArticle) {
+      openBrief(dailyDrawArticle, event);
+      return;
+    }
+
+    if (result.shouldToast) {
+      showToast("已翻开今日抽牌：" + (dailyDrawArticle?.title || "今日暂无新信号"));
+    }
+  };
   const scrollToFirstCard = () => {
     const section = document.querySelector('.hand-section');
     if (section) {
@@ -509,9 +692,38 @@ function App() {
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   };
 
+  const returnToFeatured = () => {
+    setIsArchiveOpen(false);
+    const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.querySelector('#card-hand')?.scrollIntoView({ behavior, block: 'start' });
+      });
+    });
+    showToast('已返回精选牌');
+  };
+
+  const setArchiveOpen = (nextState) => {
+    const preservedScrollY = window.scrollY;
+    setIsArchiveOpen(nextState);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: preservedScrollY, behavior: 'auto' });
+      });
+    });
+  };
+
+  const toggleArchive = () => {
+    setArchiveOpen(!isArchiveOpen);
+  };
+
+  const closeArchive = () => {
+    setArchiveOpen(false);
+  };
+
   const handleDeal = () => {
     setDealRound((round) => round + 1);
-    showToast('已重新发牌：今天的重点换了一个顺序');
+    showToast('已重新排列下方七张精选牌');
   };
 
   const handleSourceSelect = (source) => {
@@ -523,11 +735,50 @@ function App() {
     const selected = sourceSummaries.find((item) => item.id === source);
     showToast(`已筛选 ${selected?.name || source} 的信号`);
     window.requestAnimationFrame(() => {
-      document.querySelector('#card-hand')?.scrollIntoView({
+      document.querySelector(isArchiveOpen ? '#signal-archive' : '#card-hand')?.scrollIntoView({
         behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         block: 'start',
       });
     });
+  };
+
+  const handleSourceCreate = async (draft) => {
+    if (sourceMutationStatus === 'loading') return;
+    setSourceMutationStatus('loading');
+    setSourceMutationMessage('');
+
+    try {
+      const source = await createSource(draft);
+      const nextSources = await fetchSources();
+      setSourceItems(nextSources);
+      setIsSourceManagerOpen(false);
+      showToast(source.name + ' 已加入信源目录，正在首次抓取');
+      await handleRefresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '信源接入失败，请检查地址';
+      setSourceMutationMessage(message);
+      showToast(message);
+    } finally {
+      setSourceMutationStatus('idle');
+    }
+  };
+
+  const handleSourceToggle = async (source) => {
+    if (sourceMutationStatus === 'loading') return;
+    setSourceMutationStatus('loading');
+    setSourceMutationMessage('');
+
+    try {
+      const updated = await updateSource(source.id, { enabled: !source.enabled });
+      setSourceItems((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      showToast(updated.name + (updated.enabled ? ' 已启用，下次同步时生效' : ' 已停用，下次同步时生效'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '信源状态更新失败';
+      setSourceMutationMessage(message);
+      showToast(message);
+    } finally {
+      setSourceMutationStatus('idle');
+    }
   };
 
   const handleRefresh = async () => {
@@ -537,13 +788,25 @@ function App() {
 
     try {
       const result = await refreshLatestSignals();
-      const remoteArticles = await fetchLatestArticles();
+      const [remoteArticles, remoteFeaturedArticles, remoteDailyDraw, remoteTopicItems, remoteSources] = await Promise.all([
+        fetchLatestArticles(),
+        fetchFeaturedArticles().catch(() => []),
+        fetchDailyDraw().catch(() => null),
+        fetchTopics(),
+        fetchSources(),
+      ]);
       const nextArticles = remoteArticles.map((article, index) => normalizeArticle(article, index));
-      if (nextArticles.length) {
-        setLoadedArticles(nextArticles);
-        setDealRound(0);
-        setActiveSource('全部');
-      }
+      const nextFeaturedArticles = remoteFeaturedArticles.map((article, index) => normalizeArticle(article, index));
+      const nextDailyDraw = remoteDailyDraw ? normalizeArticle(remoteDailyDraw, 0) : null;
+      setLoadedArticles(nextArticles);
+      setFeaturedArticles(nextFeaturedArticles.length ? nextFeaturedArticles : selectHandArticles(nextArticles, HAND_SIZE));
+      setDailyDrawArticle(nextDailyDraw || nextArticles[0] || nextFeaturedArticles[0] || null);
+      setTopicItems(mergeTopicItems(remoteTopicItems, nextArticles));
+      setSourceItems(remoteSources);
+      setDealRound(0);
+      setCurrentTopic('全部');
+      setActiveSource('全部');
+      setIsArchiveOpen(false);
       const message = `已更新 · 新增 ${result.inserted_articles || 0} 条${result.failed_sources ? ` · ${result.failed_sources} 个信源失败` : ''}`;
       setRefreshStatus('success');
       setRefreshMessage(message);
@@ -584,43 +847,74 @@ function App() {
         onQueryChange={setCurrentQuery}
         onRead={scrollToFirstCard}
         onProfile={() => showToast('个人偏好将在后续版本开放')}
+        currentDate={currentDate}
       />
-      <StickyDock isVisible={isScrolled} isSearchOpen={isSearchOpen} sourceCount={sourceSummaries.length} onToggleSearch={toggleSearch} onScrollTop={scrollToTop} />
+      <StickyDock
+        isScrolled={isScrolled}
+        isArchiveOpen={isArchiveOpen}
+        isSearchOpen={isSearchOpen}
+        sourceCount={sourceSummaries.length}
+        currentDate={currentDate}
+        onToggleSearch={toggleSearch}
+        onScrollTop={scrollToTop}
+        onReturnToFeatured={returnToFeatured}
+      />
 
       <main id="main-content">
         <Hero
+          dailyDrawArticle={dailyDrawArticle}
+          currentDate={currentDate}
           articleCount={loadedArticles.length}
+          featuredCount={handArticles.length}
           isDeckFlipped={isDeckFlipped}
-          onFlip={() => {
-            const next = !isDeckFlipped;
-            setIsDeckFlipped(next);
-            if (next) showToast('已翻开 A 号牌：先做计划，再执行长任务');
-          }}
+          onDrawClick={handleDailyDrawClick}
           onRead={scrollToFirstCard}
           onDeal={handleDeal}
         />
 
         <TopicStrip
+          topicItems={topicItems}
           currentTopic={currentTopic}
-          topicCounts={topicCounts}
           resultCount={visibleArticles.length}
           onSelect={setCurrentTopic}
         />
 
         <section className="hand-section page-width" aria-labelledby="hand-title">
           <div className="hand-header">
-            <h2 id="hand-title">今天发到手上的牌</h2>
-            <div className="hand-status"><span className="status-dot" aria-hidden="true" /><span>{activeSource === '全部' ? '按重要度排好' : `只看 ${activeSource}`}</span></div>
+            <h2 id="hand-title">今日精选牌库</h2>
+            <div className="hand-status"><span className="status-dot" aria-hidden="true" /><span>{activeSource === '全部' ? (archiveAvailable ? `精选 ${handArticles.length} 张 · 共 ${visibleArticles.length} 张` : '按重要度排好') : `只看 ${activeSource}`}</span></div>
           </div>
-          <p className="hand-note">每一张都不是一条资讯，而是一个正在发生的方向。悬停时它会离开牌堆，点击即可读完整简报。</p>
+          <p className="hand-note">今日抽牌只展示一张；这里继续保留七张精选牌。悬停让当前牌更清晰，点击选中，再次点击才打开完整简报。</p>
 
           {visibleArticles.length ? (
-            <CardHand
-              key={visibleArticles.map((article) => article.id).join('|')}
-              visibleArticles={visibleArticles}
-              onOpen={openBrief}
-              firstCardRef={firstCardRef}
-            />
+            <>
+              {isArchiveOpen ? (
+                <SignalArchive articles={visibleArticles} onOpen={openBrief} onClose={closeArchive} />
+              ) : (
+                <CardHand
+                  key={handArticles.map((article) => article.id).join('|')}
+                  visibleArticles={handArticles}
+                  selectedId={selectedArticleId}
+                  onSelect={setSelectedArticleId}
+                  onClearSelection={closeBrief}
+                  onOpen={openBrief}
+                  firstCardRef={firstCardRef}
+                />
+              )}
+              {archiveAvailable && !isArchiveOpen && (
+                <div className="archive-toggle-row">
+                  <button
+                    className="archive-toggle"
+                    type="button"
+                    aria-expanded={isArchiveOpen}
+                    aria-controls="signal-archive"
+                    onClick={toggleArchive}
+                  >
+                    展开今日牌库 · {visibleArticles.length} 条 <span aria-hidden="true">↘</span>
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="canvas-empty">
               <span className="empty-mark" aria-hidden="true">◎</span>
@@ -643,6 +937,10 @@ function App() {
             isRefreshing={refreshStatus === 'loading'}
             statusMessage={atlasStatus}
             onSelect={handleSourceSelect}
+            onManage={() => {
+              setSourceMutationMessage('');
+              setIsSourceManagerOpen(true);
+            }}
           />
           <button
             className={`closing-action${refreshStatus === 'loading' ? ' is-syncing' : ''}`}
@@ -655,11 +953,26 @@ function App() {
         </section>
       </main>
 
+      <SourceManager
+        isOpen={isSourceManagerOpen}
+        sources={sourceSummaries}
+        isSaving={sourceMutationStatus === 'loading'}
+        errorMessage={sourceMutationMessage}
+        onClose={() => {
+          if (sourceMutationStatus !== 'loading') {
+            setIsSourceManagerOpen(false);
+            setSourceMutationMessage('');
+          }
+        }}
+        onCreate={handleSourceCreate}
+        onToggle={handleSourceToggle}
+      />
+
       <FocusSheet
         article={activeArticle}
         sheetRef={sheetRef}
         closeRef={sheetCloseRef}
-        onClose={() => setActiveArticle(null)}
+        onClose={closeBrief}
       />
       <div className={`toast${toastMessage ? ' is-visible' : ''}`} role="status" aria-live="polite">{toastMessage}</div>
     </>

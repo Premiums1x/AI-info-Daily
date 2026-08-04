@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
+const dailyDrawStyles = fs.readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 import {
   fanPose,
   filterArticles,
+  getArchiveNavigationState,
   getStickyNavState,
+  resolveCardClick,
+  resolveDailyDrawClick,
+  resolveDailyDrawDismiss,
 } from '../src/appModel.js';
 
 const fixtures = [
@@ -67,4 +74,81 @@ test('getStickyNavState activates only after the top dock boundary', () => {
   assert.equal(getStickyNavState(0, 96), false);
   assert.equal(getStickyNavState(96, 96), false);
   assert.equal(getStickyNavState(97, 96), true);
+});
+
+
+test('resolveCardClick selects on first click and opens only on the second click', () => {
+  assert.deepEqual(resolveCardClick(null, 'agent-plan'), {
+    selectedId: 'agent-plan',
+    shouldOpen: false,
+  });
+
+  assert.deepEqual(resolveCardClick('agent-plan', 'agent-plan'), {
+    selectedId: 'agent-plan',
+    shouldOpen: true,
+  });
+});
+
+test('resolveCardClick switches selection when another card is clicked and clears on blank space', () => {
+  assert.deepEqual(resolveCardClick('agent-plan', 'open-model'), {
+    selectedId: 'open-model',
+    shouldOpen: false,
+  });
+
+  assert.deepEqual(resolveCardClick('open-model', null), {
+    selectedId: null,
+    shouldOpen: false,
+  });
+});
+
+test('daily draw flips first and opens its detail on the second click', () => {
+  assert.deepEqual(resolveDailyDrawClick(false, true), {
+    nextFlipped: true,
+    shouldOpen: false,
+    shouldToast: false,
+  });
+
+  assert.deepEqual(resolveDailyDrawClick(true, true), {
+    nextFlipped: true,
+    shouldOpen: true,
+    shouldToast: false,
+  });
+
+  assert.deepEqual(resolveDailyDrawClick(true, false), {
+    nextFlipped: true,
+    shouldOpen: false,
+    shouldToast: false,
+  });
+});
+
+test('daily draw does not show a toast while flipping or opening', () => {
+  assert.equal(resolveDailyDrawClick(false, true).shouldToast, false);
+  assert.equal(resolveDailyDrawClick(true, true).shouldToast, false);
+});
+
+test('dismissing daily draw returns it to the face-down state', () => {
+  assert.deepEqual(resolveDailyDrawDismiss(), {
+    nextFlipped: false,
+  });
+});
+test('daily draw changes face only after click, not hover', () => {
+  assert.doesNotMatch(dailyDrawStyles, /\.deck-flip:hover\s+\.deck-face--(front|back)/);
+  assert.doesNotMatch(dailyDrawStyles, /\.deck-flip:focus-visible\s+\.deck-face--(front|back)/);
+  assert.match(dailyDrawStyles, /\.deck-flip\.is-flipped\s+\.deck-face--front/);
+  assert.match(dailyDrawStyles, /\.deck-flip\.is-flipped\s+\.deck-face--back/);
+  assert.doesNotMatch(appSource, /悬停或点击，翻一张看看/);
+  assert.match(appSource, /点击，翻一张看看/);
+});
+test('archive mode keeps return-to-featured navigation visible away from the archive footer', () => {
+  assert.deepEqual(getArchiveNavigationState(true, false), {
+    isVisible: true,
+    showReturnToFeatured: true,
+    target: '#card-hand',
+  });
+
+  assert.deepEqual(getArchiveNavigationState(false, true), {
+    isVisible: true,
+    showReturnToFeatured: false,
+    target: null,
+  });
 });
