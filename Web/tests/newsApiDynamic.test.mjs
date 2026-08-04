@@ -55,7 +55,7 @@ test('fetchFeaturedArticles reads the backend daily hand endpoint', async () => 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchTopics, normalizeArticle } from '../src/api/newsApi.js';
+import { fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchTopics, normalizeArticle, redrawDailyDraw } from '../src/api/newsApi.js';
 
 test('fetchLatestArticles follows the FastAPI pagination contract', async () => {
   const originalFetch = globalThis.fetch;
@@ -112,4 +112,33 @@ test('normalizeArticle keeps all backend topics for local filtering', () => {
 
   assert.deepEqual(article.topics, ['Agent', '工作流']);
   assert.equal(article.topic, 'Agent');
+});
+test('redrawDailyDraw posts the current article id and returns the next card', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  let requestOptions = {};
+  globalThis.fetch = async (url, options) => {
+    requestedUrl = String(url);
+    requestOptions = options;
+    return {
+      ok: true,
+      text: async () => JSON.stringify({
+        drawn_at: '2026-08-04',
+        article: { id: 12, title: '新的抽牌' },
+      }),
+    };
+  };
+
+  try {
+    assert.deepEqual(await redrawDailyDraw(11, 'http://api.test/api/v1'), {
+      id: 12,
+      title: '新的抽牌',
+    });
+    const url = new URL(requestedUrl);
+    assert.equal(url.pathname, '/api/v1/daily-draw/redraw');
+    assert.equal(requestOptions.method, 'POST');
+    assert.deepEqual(JSON.parse(requestOptions.body), { current_id: 11 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

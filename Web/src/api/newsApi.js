@@ -64,6 +64,7 @@ export function normalizeArticle(remoteArticle, index = 0, now = new Date()) {
   return {
     id: `remote-${id}`,
     rank: String(index + 1).padStart(2, '0'),
+    remoteId: Number.isFinite(Number(remoteArticle.id)) ? Number(remoteArticle.id) : null,
     topic: topics[0],
     topics,
     sourceId: sourceIdOf(remoteArticle),
@@ -136,6 +137,14 @@ export async function fetchFeaturedArticles(baseUrl = DEFAULT_API_BASE_URL, limi
 
 export async function fetchDailyDraw(baseUrl = DEFAULT_API_BASE_URL) {
   const response = await requestJson(buildUrl(baseUrl, '/daily-draw?since_hours=24'));
+  return response.article || null;
+}
+
+export async function redrawDailyDraw(currentId, baseUrl = DEFAULT_API_BASE_URL) {
+  const response = await requestJson(buildUrl(baseUrl, '/daily-draw/redraw'), {
+    method: 'POST',
+    body: JSON.stringify({ current_id: currentId ?? null }),
+  });
   return response.article || null;
 }
 

@@ -121,6 +121,33 @@ def test_daily_draw_returns_one_recent_article():
     body = response.json()
     assert body["article"]["id"] == 1
     assert body["drawn_at"]
+def test_daily_draw_redraw_returns_a_different_recent_article():
+    with make_client() as (client, app):
+        with app.state.session_factory() as session:
+            now = datetime.now(timezone.utc)
+            session.add(
+                Article(
+                    source_code="test-source",
+                    title="第二张抽牌",
+                    summary="第二个信号。",
+                    original_url="https://example.com/3",
+                    canonical_url="https://example.com/3",
+                    published_at=now,
+                    collected_at=now,
+                    category_code="product",
+                    tags_json='["Agent"]',
+                    search_text="第二张抽牌 第二个信号 测试来源 Agent",
+                )
+            )
+            session.commit()
+
+        response = client.post(
+            "/api/v1/daily-draw/redraw",
+            json={"current_id": 1},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["article"]["id"] == 3
 
 def test_health_reports_degraded_when_database_session_fails():
     with make_client() as (client, app):

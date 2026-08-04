@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchHealth } from './api/newsApi.js';
-import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, normalizeIngestionStatus, refreshLatestSignals, updateSource } from './api/newsApi.js';
+import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, normalizeIngestionStatus, redrawDailyDraw, refreshLatestSignals, updateSource } from './api/newsApi.js';
 import SignalArchive from './components/SignalArchive.jsx';
 import SourceAtlas from './components/SourceAtlas.jsx';
 import RecommendationAssistant from './components/RecommendationAssistant.jsx';
@@ -193,7 +193,7 @@ function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, curr
   );
 }
 
-function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, featuredCount, onDrawClick, onRead, onDeal, lastFetchedAt }) {
+function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, featuredCount, isRedrawing, onDrawClick, onRedraw, onRead, lastFetchedAt }) {
   const dailyDrawTitle = dailyDrawArticle?.title || "今天暂时没有新信号";
   const dailyDrawRank = dailyDrawArticle?.rank || "A";
   const dailyDrawType = dailyDrawArticle?.type || "DAILY";
@@ -211,12 +211,12 @@ function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, feat
         <p className="intro-lede">不追逐热闹，只把过去 24 小时里值得继续追踪的变化，整理成一手可以慢慢翻的牌。</p>
         <div className="intro-actions">
           <button className="primary-action" type="button" onClick={onRead}>先看最重要的一张 <span aria-hidden="true">↘</span></button>
-          <button className="secondary-action" type="button" onClick={onDeal}>重新排精选 <span aria-hidden="true">↻</span></button>
+          <button className={'secondary-action' + (isRedrawing ? ' is-loading' : '')} type="button" onClick={onRedraw} disabled={isRedrawing} aria-busy={isRedrawing}>{isRedrawing ? '正在重新抽牌…' : '重新抽牌'} <span aria-hidden="true">↻</span></button>
         </div>
         <p className="intro-footnote"><strong>8 分钟</strong>读完今日重点 <span aria-hidden="true">·</span> 每张牌都能打开原文 <span className="sync-label">· 上次抓取 {formatLastFetchedAt(lastFetchedAt)}</span></p>
       </div>
 
-      <div className="deal-stage" aria-label="翻开今日信号牌">
+      <div className={'deal-stage' + (isRedrawing ? ' is-redrawing' : '')} aria-label="翻开今日信号牌" aria-busy={isRedrawing}>
         <div className="deal-table" aria-hidden="true" />
         <div className="deck-card deck-card--back" aria-hidden="true"><span>AI</span><i /></div>
         <div className="deck-card deck-card--middle" aria-hidden="true"><span>DAILY</span><i /></div>
@@ -419,6 +419,7 @@ function App() {
   const [dealRound, setDealRound] = useState(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isDeckFlipped, setIsDeckFlipped] = useState(false);
+  const [isRedrawing, setIsRedrawing] = useState(false);
   const [activeArticle, setActiveArticle] = useState(null);
   const [selectedArticleId, setSelectedArticleId] = useState(null);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -719,6 +720,26 @@ function App() {
       showToast("已翻开今日抽牌：" + (dailyDrawArticle?.title || "今日暂无新信号"));
     }
   };
+  const handleDailyRedraw = async () => {
+    if (isRedrawing) return;
+    setIsRedrawing(true);
+    setIsDeckFlipped(false);
+    setActiveArticle(null);
+    setSelectedArticleId(null);
+    try {
+      const [remoteArticle] = await Promise.all([
+        redrawDailyDraw(dailyDrawArticle?.remoteId ?? null),
+        new Promise((resolve) => window.setTimeout(resolve, 620)),
+      ]);
+      const nextArticle = remoteArticle ? normalizeArticle(remoteArticle, 0) : null;
+      setDailyDrawArticle(nextArticle);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "重新抽牌失败，请稍后再试");
+    } finally {
+      setIsRedrawing(false);
+    }
+  };
+
   const scrollToFirstCard = () => {
     const section = document.querySelector('.hand-section');
     if (section) {
@@ -914,8 +935,9 @@ function App() {
           featuredCount={handArticles.length}
           isDeckFlipped={isDeckFlipped}
           onDrawClick={handleDailyDrawClick}
+          isRedrawing={isRedrawing}
+          onRedraw={handleDailyRedraw}
           onRead={scrollToFirstCard}
-          onDeal={handleDeal}
           lastFetchedAt={lastFetchedAt}
         />
         <RecommendationAssistant onOpen={openBrief} enabled={assistantEnabled} />
@@ -930,6 +952,7 @@ function App() {
         <section className="hand-section page-width" aria-labelledby="hand-title">
           <div className="hand-header">
             <h2 id="hand-title">今日精选牌库</h2>
+            <button className="secondary-action" type="button" onClick={handleDeal}>重排精选 <span aria-hidden="true">↻</span></button>
             <div className="hand-status"><span className="status-dot" aria-hidden="true" /><span>{activeSource === '全部' ? (archiveAvailable ? `精选 ${handArticles.length} 张 · 共 ${visibleArticles.length} 张` : '按重要度排好') : `只看 ${activeSource}`}</span></div>
           </div>
           <p className="hand-note">今日抽牌只展示一张；这里继续保留七张精选牌。悬停让当前牌更清晰，点击选中，再次点击才打开完整简报。</p>
