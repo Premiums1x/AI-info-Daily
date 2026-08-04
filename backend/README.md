@@ -20,6 +20,7 @@ python -m uvicorn app.main:app --reload --port 8000
 - 资讯列表：<http://localhost:8000/api/v1/articles>
 
 数据库默认保存到项目根目录的 `data/news.db`。RSS 摘要和原文链接会被保存，不会抓取完整新闻正文。
+健康检查中的 `scheduler.last_run_at` 是最近一次完整 ingestion 流程完成的 UTC 时间；启动、定时和手动抓取都会更新它。进程重启后，健康接口会从已持久化的 `sources.last_fetched_at` 聚合回退，因此前端仍能显示最近一次信源抓取时间。
 
 ## API
 
@@ -35,6 +36,7 @@ GET /api/v1/sources
 POST /api/v1/sources
 PATCH /api/v1/sources/{code}
 POST /api/v1/ingestion/refresh
+POST /api/v1/assistant/query
 ```
 
 `/api/v1/articles` 支持 `q`、`category`、`tag`、`since_hours`、`limit`、`offset` 和 `sort` 参数。
@@ -67,7 +69,32 @@ PATCH /api/v1/sources/{code}
 Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/ingestion/refresh
 ```
 
-接口会返回本次成功、失败、新增、更新和去重数量；抓取逻辑复用已有 ingestion pipeline。
+接口会返回本次成功、失败、新增、更新和去重数量，其中 `fetched_at` 是本次 ingestion 完成时间；抓取逻辑复用已有 ingestion pipeline。前端轮询只读取 `GET /api/v1/health`，不会触发新的 RSS 抓取。
+## AI 智能推荐
+
+初版智能推荐只从已经抓取并保存到 SQLite 的文章中筛选，不执行 Web Search，也不抓取原文全文。LLM API 只负责把用户的一句话转换成主题、关键词、分类和时间范围，后端再执行确定性的文章查询。
+
+启用前，在 `backend` 目录的 `.env` 中配置：
+
+```env
+ASSISTANT_ENABLED=true
+LLM_API_URL=https://your-provider.example/v1/chat/completions
+LLM_API_KEY=your-api-key
+LLM_MODEL=your-model
+LLM_MAX_TOKENS=300
+ASSISTANT_MAX_CONCURRENCY=1
+ASSISTANT_MIN_INTERVAL_SECONDS=2
+```
+
+未配置时，普通 RSS、主题和文章接口仍然可以正常使用，智能推荐接口会返回未配置状态。
+
+接口：
+
+```text
+POST /api/v1/assistant/query
+请求体：{"message":"推荐最近的 Agent 资讯"}
+```
+
 
 ## Docker
 
