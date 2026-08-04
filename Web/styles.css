@@ -259,6 +259,11 @@ input:focus-visible {
   transform: translateY(-2px);
 }
 
+.dock-action[aria-expanded="false"]:focus-visible,
+.sticky-dock-action[aria-label="搜索"]:focus-visible {
+  outline: none;
+}
+
 .sticky-dock-action--featured {
   color: var(--ember);
   border-color: rgba(202, 116, 72, 0.34);

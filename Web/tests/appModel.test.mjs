@@ -161,3 +161,7 @@ test('escape closes a scrolled search panel through the scroll-safe close path',
   assert.match(appSource, /\[activeArticle, isSearchOpen, isScrolled\]/);
   assert.doesNotMatch(escapeHandler, /searchButtonRef\.current\?\.focus\(\)/);
 });
+
+test('sticky search action does not show the default focus ring', () => {
+  assert.match(dailyDrawStyles, /\.dock-action\[aria-expanded="false"\]:focus-visible,\s*\.sticky-dock-action\[aria-label="搜索"\]:focus-visible\s*\{[\s\S]*?outline:\s*none;/);
+});
