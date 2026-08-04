@@ -390,6 +390,10 @@ input:focus-visible {
   white-space: nowrap;
 }
 
+.dock-sync {
+  white-space: nowrap;
+}
+
 .dock-status i,
 .status-dot {
   display: inline-block;
@@ -924,6 +928,175 @@ kbd {
   pointer-events: none;
 }
 
+.assistant-section {
+  display: grid;
+  gap: 18px;
+  margin-top: 42px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.assistant-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.assistant-kicker,
+.assistant-result-meta {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.assistant-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.05;
+}
+
+.assistant-heading p,
+.assistant-result p,
+.assistant-empty {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.assistant-form {
+  display: grid;
+  gap: 8px;
+}
+
+.assistant-form label {
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.assistant-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.assistant-input-row input {
+  min-width: 0;
+  flex: 1;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+  font: inherit;
+}
+
+.assistant-input-row input:focus-visible {
+  outline: 2px solid var(--forest);
+  outline-offset: 2px;
+}
+
+.assistant-input-row button,
+.assistant-result button {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--forest);
+  border-radius: 12px;
+  color: var(--paper-light);
+  background: var(--forest);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.assistant-input-row button:hover,
+.assistant-result button:hover {
+  background: var(--forest-deep);
+}
+
+.assistant-input-row button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.assistant-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-prompts button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assistant-prompts button:hover,
+.assistant-prompts button:focus-visible {
+  border-color: var(--forest);
+  color: var(--ink);
+  outline: 2px solid var(--forest);
+  outline-offset: 2px;
+}
+
+.assistant-feedback {
+  display: grid;
+  gap: 14px;
+  min-height: 20px;
+}
+
+.assistant-reply {
+  margin: 0;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.assistant-results {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-result {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.assistant-result h3 {
+  margin: 6px 0;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.assistant-result button {
+  flex: 0 0 auto;
+  min-width: 96px;
+  padding-inline: 12px;
+  font-size: 12px;
+}
+
+.assistant-error {
+  margin: 0;
+  color: var(--ember);
+  font-weight: 700;
+}
 .topic-strip {
   display: flex;
   align-items: center;
@@ -1004,6 +1177,29 @@ kbd {
   font-size: 12px;
   white-space: nowrap;
 }
+.topic-more-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.topic-more-button:hover,
+.topic-more-button:focus-visible {
+  border-color: var(--forest);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.45);
+  outline: 2px solid var(--forest);
+  outline-offset: 2px;
+}
+
 
 .hand-section {
   padding-top: 78px;
@@ -2633,6 +2829,8 @@ kbd {
     max-width: 570px;
     font-size: clamp(42px, 13vw, 66px);
     letter-spacing: -0.08em;
+
+
   }
 
   .intro-lede {
@@ -2799,6 +2997,25 @@ kbd {
     right: 16px;
     bottom: 16px;
     max-width: calc(100% - 32px);
+  }
+  .assistant-section {
+    gap: 16px;
+    margin-top: 28px;
+    padding: 22px 18px;
+  }
+
+  .assistant-input-row {
+    flex-direction: column;
+  }
+
+  .assistant-input-row button,
+  .assistant-result button {
+    width: 100%;
+  }
+
+  .assistant-result {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

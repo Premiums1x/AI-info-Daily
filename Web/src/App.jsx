@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, refreshLatestSignals, updateSource } from './api/newsApi.js';
+import { fetchHealth } from './api/newsApi.js';
+import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, normalizeIngestionStatus, refreshLatestSignals, updateSource } from './api/newsApi.js';
 import SignalArchive from './components/SignalArchive.jsx';
 import SourceAtlas from './components/SourceAtlas.jsx';
+import RecommendationAssistant from './components/RecommendationAssistant.jsx';
 import SourceManager from './components/SourceManager.jsx';
 import { articles } from './data/articles.js';
-import { fanPose, filterArticles, formatCurrentDate, getArchiveNavigationState, getStickyNavState, resolveCardClick, resolveDailyDrawClick, resolveDailyDrawDismiss, selectHandArticles } from './appModel.js';
-import { mergeTopicItems, summarizeTopics } from './topicModel.js';
+import { fanPose, filterArticles, formatCurrentDate, formatLastFetchedAt, getArchiveNavigationState, getStickyNavState, resolveCardClick, resolveDailyDrawClick, resolveDailyDrawDismiss, selectHandArticles } from './appModel.js';
+import { getVisibleTopicItems, mergeTopicItems, summarizeTopics } from './topicModel.js';
 import { filterArticlesBySource, summarizeSources } from './sourceModel.js';
 
 const HAND_SIZE = 7;
@@ -78,6 +80,7 @@ function TopDock({
   onRead,
   onProfile,
   currentDate,
+  lastFetchedAt,
 }) {
   return (
     <header ref={dockRef} className={`top-dock page-width glass-surface${isScrolled ? ' is-scrolled' : ''}`} aria-label="AI Daily 顶部导航">
@@ -93,6 +96,8 @@ function TopDock({
         <span className="dock-date">{formatCurrentDate(currentDate)}</span>
         <span className="dock-divider" aria-hidden="true" />
         <span className="dock-status"><i /> {sourceCount} 个信源正在工作</span>
+        <span className="dock-divider" aria-hidden="true" />
+        <span className="dock-sync">上次抓取 {formatLastFetchedAt(lastFetchedAt)}</span>
       </div>
 
       <div className="dock-actions">
@@ -188,7 +193,7 @@ function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, curr
   );
 }
 
-function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, featuredCount, onDrawClick, onRead, onDeal }) {
+function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, featuredCount, onDrawClick, onRead, onDeal, lastFetchedAt }) {
   const dailyDrawTitle = dailyDrawArticle?.title || "今天暂时没有新信号";
   const dailyDrawRank = dailyDrawArticle?.rank || "A";
   const dailyDrawType = dailyDrawArticle?.type || "DAILY";
@@ -208,7 +213,7 @@ function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, feat
           <button className="primary-action" type="button" onClick={onRead}>先看最重要的一张 <span aria-hidden="true">↘</span></button>
           <button className="secondary-action" type="button" onClick={onDeal}>重新排精选 <span aria-hidden="true">↻</span></button>
         </div>
-        <p className="intro-footnote"><strong>8 分钟</strong>读完今日重点 <span aria-hidden="true">·</span> 每张牌都能打开原文</p>
+        <p className="intro-footnote"><strong>8 分钟</strong>读完今日重点 <span aria-hidden="true">·</span> 每张牌都能打开原文 <span className="sync-label">· 上次抓取 {formatLastFetchedAt(lastFetchedAt)}</span></p>
       </div>
 
       <div className="deal-stage" aria-label="翻开今日信号牌">
@@ -242,11 +247,13 @@ function Hero({ isDeckFlipped, dailyDrawArticle, currentDate, articleCount, feat
 }
 
 function TopicStrip({ topicItems, currentTopic, resultCount, onSelect }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleTopicItems = getVisibleTopicItems(topicItems, 8, isExpanded);
   return (
     <section className="topic-strip page-width" aria-label="按主题浏览">
       <span className="topic-title">按主题看牌</span>
       <div className="topic-dock" role="tablist" aria-label="资讯主题">
-        {topicItems.map(({ name, count }) => (
+        {visibleTopicItems.map(({ name, count }) => (
           <button
             key={name}
             className={`topic-button${currentTopic === name ? ' is-active' : ''}`}
@@ -260,6 +267,16 @@ function TopicStrip({ topicItems, currentTopic, resultCount, onSelect }) {
           </button>
         ))}
       </div>
+      {topicItems.length > 8 && (
+        <button
+          className="topic-more-button"
+          type="button"
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((value) => !value)}
+        >
+          {isExpanded ? '收起主题' : `全部主题 · ${topicItems.length - 1}`}
+        </button>
+      )}
       <span className="topic-count" aria-live="polite">{resultCount} 张牌</span>
     </section>
   );
@@ -416,8 +433,10 @@ function App() {
   const [isSourceManagerOpen, setIsSourceManagerOpen] = useState(false);
   const [sourceMutationStatus, setSourceMutationStatus] = useState('idle');
   const [sourceMutationMessage, setSourceMutationMessage] = useState('');
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState('idle');
   const [refreshMessage, setRefreshMessage] = useState('');
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
 
   const dockRef = useRef(null);
   const searchButtonRef = useRef(null);
@@ -480,11 +499,12 @@ function App() {
 
     const hydrateFromBackend = async () => {
       try {
-        const [remoteArticles, remoteFeaturedArticles, remoteDailyDraw, remoteTopicItems, remoteSources] = await Promise.all([
+        const [remoteArticles, remoteFeaturedArticles, remoteDailyDraw, remoteTopicItems, remoteHealth, remoteSources] = await Promise.all([
           fetchLatestArticles(),
           fetchFeaturedArticles().catch(() => []),
           fetchDailyDraw().catch(() => null),
           fetchTopics(),
+          fetchHealth().catch(() => ({ assistant: { enabled: false } })),
           fetchSources(),
         ]);
         if (cancelled) return;
@@ -492,10 +512,13 @@ function App() {
         const nextArticles = remoteArticles.map((article, index) => normalizeArticle(article, index));
         const nextFeaturedArticles = remoteFeaturedArticles.map((article, index) => normalizeArticle(article, index));
         const nextDailyDraw = remoteDailyDraw ? normalizeArticle(remoteDailyDraw, 0) : null;
+        const ingestionStatus = normalizeIngestionStatus(remoteHealth);
         setLoadedArticles(nextArticles);
         setFeaturedArticles(nextFeaturedArticles.length ? nextFeaturedArticles : selectHandArticles(nextArticles, HAND_SIZE));
         setDailyDrawArticle(nextDailyDraw || nextArticles[0] || nextFeaturedArticles[0] || null);
         setTopicItems(mergeTopicItems(remoteTopicItems, nextArticles));
+        setAssistantEnabled(remoteHealth?.assistant?.enabled === true);
+        setLastFetchedAt(ingestionStatus.lastFetchedAt);
         setSourceItems(remoteSources);
       } catch (_error) {
         // Keep the prototype fallback when the API is not running yet.
@@ -505,6 +528,27 @@ function App() {
     hydrateFromBackend();
     return () => {
       cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+
+    const pollIngestionStatus = async () => {
+      try {
+        const remoteHealth = await fetchHealth();
+        if (cancelled) return;
+        const { lastFetchedAt: nextLastFetchedAt } = normalizeIngestionStatus(remoteHealth);
+        setLastFetchedAt(nextLastFetchedAt);
+      } catch (_error) {
+        // Health polling is best-effort; retain the last known timestamp.
+      }
+    };
+
+    const ingestionPollTimer = window.setInterval(pollIngestionStatus, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(ingestionPollTimer);
     };
   }, []);
 
@@ -788,6 +832,7 @@ function App() {
 
     try {
       const result = await refreshLatestSignals();
+      setLastFetchedAt(result.fetched_at || null);
       const [remoteArticles, remoteFeaturedArticles, remoteDailyDraw, remoteTopicItems, remoteSources] = await Promise.all([
         fetchLatestArticles(),
         fetchFeaturedArticles().catch(() => []),
@@ -848,6 +893,7 @@ function App() {
         onRead={scrollToFirstCard}
         onProfile={() => showToast('个人偏好将在后续版本开放')}
         currentDate={currentDate}
+        lastFetchedAt={lastFetchedAt}
       />
       <StickyDock
         isScrolled={isScrolled}
@@ -870,7 +916,9 @@ function App() {
           onDrawClick={handleDailyDrawClick}
           onRead={scrollToFirstCard}
           onDeal={handleDeal}
+          lastFetchedAt={lastFetchedAt}
         />
+        <RecommendationAssistant onOpen={openBrief} enabled={assistantEnabled} />
 
         <TopicStrip
           topicItems={topicItems}

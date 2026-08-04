@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.assistant.client import create_llm_client
 from app.api.v1 import router as api_router
 from app.core.config import Settings
 from app.core.database import create_engine_for_settings, create_session_factory, init_db
@@ -14,6 +16,7 @@ from app.jobs.scheduler import create_scheduler
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     engine = create_engine_for_settings(settings)
+    assistant_client = create_llm_client(settings)
     init_db(engine)
     session_factory = create_session_factory(engine)
 
@@ -25,11 +28,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.scheduler = scheduler
             scheduler.start()
         if settings.ingest_on_startup:
-            app.state.last_ingest_at = None
             app.state.last_ingest_result = await run_ingestion(
                 session_factory,
                 settings=settings,
             )
+            app.state.last_ingest_at = datetime.now(timezone.utc).isoformat()
         try:
             yield
         finally:
@@ -43,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.assistant_request_times = {}
+    app.state.assistant_client = assistant_client
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.scheduler = None

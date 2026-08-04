@@ -134,3 +134,4 @@ def test_health_reports_degraded_when_database_session_fails():
     assert response.json()["status"] == "degraded"
     assert response.json()["database"] == "error"
 
+    assert response.json()["assistant"]["enabled"] is False

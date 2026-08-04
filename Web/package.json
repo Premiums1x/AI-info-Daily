@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test --test-isolation=none tests/appModel.test.mjs tests/sourceModel.test.mjs tests/newsApi.test.mjs tests/topicModel.test.mjs tests/newsApiDynamic.test.mjs tests/archiveModel.test.mjs tests/topicModelRemote.test.mjs tests/sourceManagement.test.mjs tests/dateModel.test.mjs",
+    "test": "node --test --test-isolation=none tests/appModel.test.mjs tests/sourceModel.test.mjs tests/newsApi.test.mjs tests/topicModel.test.mjs tests/newsApiDynamic.test.mjs tests/archiveModel.test.mjs tests/topicModelRemote.test.mjs tests/sourceManagement.test.mjs tests/dateModel.test.mjs tests/assistantApi.test.mjs tests/assistantHealth.test.mjs tests/ingestionStatus.test.mjs",
     "react": "npm run dev -- --host 127.0.0.1 --port 4173"
   },
   "dependencies": {

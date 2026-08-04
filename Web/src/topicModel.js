@@ -22,9 +22,16 @@ export function summarizeTopics(articles) {
 
   return [
     { name: '全部', count: articles.length },
-    ...[...counts.entries()].map(([name, count]) => ({ name, count })),
+    ...[...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((left, right) => right.count - left.count || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)),
   ];
 }
+export function getVisibleTopicItems(topicItems, maxVisible = 8, expanded = false) {
+  if (expanded || topicItems.length <= maxVisible) return topicItems;
+  return topicItems.slice(0, Math.max(1, maxVisible));
+}
+
 export function mergeTopicItems(remoteItems, articles) {
   const items = Array.isArray(remoteItems)
     ? remoteItems

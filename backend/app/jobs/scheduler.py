@@ -10,11 +10,12 @@ def create_scheduler(app, settings, session_factory) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
 
     async def scheduled_ingestion():
-        app.state.last_ingest_at = datetime.now(timezone.utc).isoformat()
-        app.state.last_ingest_result = await run_ingestion(
+        result = await run_ingestion(
             session_factory,
             settings=settings,
         )
+        app.state.last_ingest_result = result
+        app.state.last_ingest_at = datetime.now(timezone.utc).isoformat()
 
     scheduler.add_job(
         scheduled_ingestion,

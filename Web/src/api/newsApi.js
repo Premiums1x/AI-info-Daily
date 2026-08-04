@@ -163,6 +163,24 @@ export async function fetchTopics(baseUrl = DEFAULT_API_BASE_URL) {
 }
 
 
+export async function fetchHealth(baseUrl = DEFAULT_API_BASE_URL) {
+  return requestJson(buildUrl(baseUrl, '/health'));
+}
+
+export function normalizeIngestionStatus(remoteHealth) {
+  const scheduler = remoteHealth?.scheduler || {};
+  return {
+    lastFetchedAt: scheduler.last_run_at ?? null,
+    nextRunAt: scheduler.next_run_at ?? null,
+    status: scheduler.last_status ?? 'never',
+  };
+}
+export async function queryAssistant(message, baseUrl = DEFAULT_API_BASE_URL) {
+  return requestJson(buildUrl(baseUrl, '/assistant/query'), {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
 export async function fetchSources(baseUrl = DEFAULT_API_BASE_URL) {
   const response = await requestJson(buildUrl(baseUrl, '/sources?since_hours=24'));
   return Array.isArray(response.items) ? response.items.map(normalizeSource) : [];

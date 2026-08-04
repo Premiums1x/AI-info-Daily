@@ -4,6 +4,14 @@ export function formatCurrentDate(date = new Date()) {
   return `${date.getMonth() + 1}月 ${date.getDate()}日 · ${WEEKDAYS[date.getDay()]}`;
 }
 
+export function formatLastFetchedAt(value) {
+  if (!value) return '等待首次抓取';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '等待首次抓取';
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${hours}:${minutes}`;
+}
 export function orderedArticles(articles, shift = 0) {
   if (!articles.length) return [];
   const offset = ((shift % articles.length) + articles.length) % articles.length;

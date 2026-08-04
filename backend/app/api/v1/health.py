@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select, text
 
@@ -6,6 +8,13 @@ from app.schemas.health import HealthResponse
 
 
 router = APIRouter(prefix="/health", tags=["health"])
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @router.get("", response_model=HealthResponse)
@@ -29,6 +38,7 @@ def health(request: Request):
         with request.app.state.session_factory() as session:
             session.execute(text("SELECT 1"))
             total_sources = session.scalar(select(func.count(Source.code))) or 0
+            latest_source_fetch_at = session.scalar(select(func.max(Source.last_fetched_at))) or None
             failed_sources = session.scalar(
                 select(func.count(Source.code)).where(Source.last_error.is_not(None))
             ) or 0
@@ -36,7 +46,12 @@ def health(request: Request):
     except Exception:
         total_sources = 0
         failed_sources = 0
+        latest_source_fetch_at = None
         database_status = "error"
+
+    if scheduler_data["last_run_at"] is None and latest_source_fetch_at is not None:
+        scheduler_data["last_run_at"] = _as_utc(latest_source_fetch_at).isoformat()
+        scheduler_data["last_status"] = "degraded" if failed_sources else "ok"
 
     status = "ok" if database_status == "ok" and failed_sources == 0 else "degraded"
     return HealthResponse(
@@ -47,6 +62,9 @@ def health(request: Request):
             "total": total_sources,
             "healthy": max(total_sources - failed_sources, 0),
             "failed": failed_sources,
+        },
+        assistant={
+            "enabled": getattr(request.app.state, "assistant_client", None) is not None,
         },
     )
 

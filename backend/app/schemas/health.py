@@ -7,5 +7,6 @@ class HealthResponse(BaseModel):
     status: str
     database: str
     scheduler: dict[str, Any]
+    assistant: dict[str, bool]
     sources: dict[str, int]
 
