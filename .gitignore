@@ -6,3 +6,4 @@ __pycache__/
 .env
 ARCHITECTURE.md
 PROJECT_STATUS.md
+news.db
