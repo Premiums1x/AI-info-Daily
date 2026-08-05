@@ -4,7 +4,7 @@ import { fetchHealth } from './api/newsApi.js';
 import { createSource, fetchDailyDraw, fetchFeaturedArticles, fetchLatestArticles, fetchSources, fetchTopics, normalizeArticle, normalizeIngestionStatus, redrawDailyDraw, refreshLatestSignals, updateSource } from './api/newsApi.js';
 import SignalArchive from './components/SignalArchive.jsx';
 import SourceAtlas from './components/SourceAtlas.jsx';
-import RecommendationAssistant from './components/RecommendationAssistant.jsx';
+import RecommendationAssistant, { AssistantIcon } from './components/RecommendationAssistant.jsx';
 import SourceManager from './components/SourceManager.jsx';
 import { articles } from './data/articles.js';
 import { fanPose, filterArticles, formatCurrentDate, formatLastFetchedAt, getArchiveNavigationState, getStickyNavState, resolveCardClick, resolveDailyDrawClick, resolveDailyDrawDismiss, selectHandArticles } from './appModel.js';
@@ -69,6 +69,7 @@ function BrandMark() {
 
 function TopDock({
   dockRef,
+  searchRegionRef,
   searchButtonRef,
   searchInputRef,
   isSearchOpen,
@@ -81,6 +82,10 @@ function TopDock({
   onProfile,
   currentDate,
   lastFetchedAt,
+  assistantEnabled,
+  assistantOpen,
+  onAssistantToggle,
+  onAssistantOpen,
 }) {
   return (
     <header ref={dockRef} className={`top-dock page-width glass-surface${isScrolled ? ' is-scrolled' : ''}`} aria-label="AI Daily 顶部导航">
@@ -112,6 +117,14 @@ function TopDock({
           <SearchIcon />
           <span>搜索</span>
         </button>
+        <RecommendationAssistant
+          onOpen={onAssistantOpen}
+          enabled={assistantEnabled}
+          isScrolled={isScrolled}
+          isOpen={assistantOpen}
+          onToggle={onAssistantToggle}
+          showLauncher={!isScrolled}
+        />
         <button className="dock-action" type="button" onClick={onRead}>
           <ReadIcon />
           <span>开始读</span>
@@ -120,6 +133,7 @@ function TopDock({
       </div>
 
       <div
+        ref={searchRegionRef}
         className={`search-panel${isSearchOpen ? ' is-open' : ''}${isScrolled ? ' search-panel--scrolled' : ''}`}
         id="search-panel"
         aria-hidden={!isSearchOpen}
@@ -144,7 +158,7 @@ function TopDock({
   );
 }
 
-function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, currentDate, onToggleSearch, onScrollTop, onReturnToFeatured }) {
+function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, currentDate, onToggleSearch, onScrollTop, onReturnToFeatured, assistantOpen, onToggleAssistant }) {
   const navigation = getArchiveNavigationState(isArchiveOpen, isScrolled);
   const tabIndex = navigation.isVisible ? 0 : -1;
   const [dateLabel, weekdayLabel] = formatCurrentDate(currentDate).split(' · ');
@@ -158,6 +172,17 @@ function StickyDock({ isScrolled, isArchiveOpen, isSearchOpen, sourceCount, curr
         <span className="sticky-dock-source"><i />{sourceCount} 个信源正在工作</span>
       </div>
       <div className="sticky-dock-actions">
+        <button
+          className="sticky-dock-action sticky-dock-action--assistant glass-surface"
+          type="button"
+          aria-label={assistantOpen ? '关闭 AI 助手' : '打开 AI 助手'}
+          aria-expanded={assistantOpen}
+          aria-controls="assistant-panel"
+          tabIndex={tabIndex}
+          onClick={onToggleAssistant}
+        >
+          <AssistantIcon />
+        </button>
         {navigation.showReturnToFeatured && (
           <button
             className="sticky-dock-action sticky-dock-action--featured glass-surface"
@@ -435,11 +460,13 @@ function App() {
   const [sourceMutationStatus, setSourceMutationStatus] = useState('idle');
   const [sourceMutationMessage, setSourceMutationMessage] = useState('');
   const [assistantEnabled, setAssistantEnabled] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState('idle');
   const [refreshMessage, setRefreshMessage] = useState('');
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
 
   const dockRef = useRef(null);
+  const searchRegionRef = useRef(null);
   const searchButtonRef = useRef(null);
   const searchInputRef = useRef(null);
   const firstCardRef = useRef(null);
@@ -643,6 +670,22 @@ function App() {
   }, [selectedArticleId, activeArticle, isDeckFlipped]);
 
   useEffect(() => {
+    if (!isSearchOpen) return undefined;
+
+    const handleSearchPointerDown = (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (searchRegionRef.current?.contains(event.target)) return;
+      if (searchButtonRef.current?.contains(event.target)) return;
+      if (target?.closest('.sticky-dock-action[aria-label="搜索"], .sticky-dock-action[aria-label="关闭搜索"]')) return;
+      closeSearch();
+    };
+
+    document.addEventListener('pointerdown', handleSearchPointerDown);
+    return () => document.removeEventListener('pointerdown', handleSearchPointerDown);
+  }, [isSearchOpen, isScrolled]);
+
+
+  useEffect(() => {
     const handleGlobalKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -706,6 +749,8 @@ function App() {
 
     setActiveArticle(article);
   };
+
+  const toggleAssistant = () => setIsAssistantOpen((current) => !current);
 
   const handleDailyDrawClick = (event) => {
     const result = resolveDailyDrawClick(isDeckFlipped, Boolean(dailyDrawArticle));
@@ -903,6 +948,7 @@ function App() {
 
       <TopDock
         dockRef={dockRef}
+        searchRegionRef={searchRegionRef}
         searchButtonRef={searchButtonRef}
         searchInputRef={searchInputRef}
         isSearchOpen={isSearchOpen}
@@ -915,6 +961,10 @@ function App() {
         onProfile={() => showToast('个人偏好将在后续版本开放')}
         currentDate={currentDate}
         lastFetchedAt={lastFetchedAt}
+        assistantEnabled={assistantEnabled}
+        assistantOpen={isAssistantOpen}
+        onAssistantToggle={toggleAssistant}
+        onAssistantOpen={openBrief}
       />
       <StickyDock
         isScrolled={isScrolled}
@@ -925,6 +975,8 @@ function App() {
         onToggleSearch={toggleSearch}
         onScrollTop={scrollToTop}
         onReturnToFeatured={returnToFeatured}
+        assistantOpen={isAssistantOpen}
+        onToggleAssistant={toggleAssistant}
       />
 
       <main id="main-content">
@@ -940,7 +992,6 @@ function App() {
           onRead={scrollToFirstCard}
           lastFetchedAt={lastFetchedAt}
         />
-        <RecommendationAssistant onOpen={openBrief} enabled={assistantEnabled} />
 
         <TopicStrip
           topicItems={topicItems}
@@ -1051,7 +1102,3 @@ function App() {
 }
 
 export default App;
-
-
-
-
