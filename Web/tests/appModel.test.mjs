@@ -165,3 +165,17 @@ test('escape closes a scrolled search panel through the scroll-safe close path',
 test('sticky search action does not show the default focus ring', () => {
   assert.match(dailyDrawStyles, /\.dock-action\[aria-expanded="false"\]:focus-visible,\s*\.sticky-dock-action\[aria-label="搜索"\]:focus-visible\s*\{[\s\S]*?outline:\s*none;/);
 });
+
+test('search closes when the pointer lands outside the top and sticky search controls', () => {
+  const topDockDefinition = appSource.match(/function TopDock[\s\S]*?function StickyDock/)[0];
+  const stickyDockDefinition = appSource.match(/function StickyDock[\s\S]*?function Hero/)[0];
+  const searchPointerHandler = appSource.match(/const handleSearchPointerDown = \(event\) => \{[\s\S]*?\n    \};/)[0];
+
+  assert.match(topDockDefinition, /ref=\{searchRegionRef\}/);
+  assert.match(topDockDefinition, /ref=\{searchButtonRef\}/);
+  assert.match(stickyDockDefinition, /aria-label=\{isSearchOpen \? '关闭搜索' : '搜索'\}/);
+  assert.match(searchPointerHandler, /searchRegionRef\.current\?\.contains\(event\.target\)/);
+  assert.match(searchPointerHandler, /target\?\.closest\('.sticky-dock-action\[aria-label="搜索"\], \.sticky-dock-action\[aria-label="关闭搜索"\]'\)/);
+  assert.match(searchPointerHandler, /closeSearch\(\)/);
+  assert.match(appSource, /document\.addEventListener\('pointerdown', handleSearchPointerDown\)/);
+});
